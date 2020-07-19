@@ -104,6 +104,7 @@ class Storage:
     async def download_file(self, file_hash: str) -> Path:
         """
         Отдает имя файла по хэшу.
+        Если файла нет - генерирует исключение.
 
         :param file_hash: хэш запрашиваемого файла
         :return: имя файла
@@ -119,11 +120,11 @@ class Storage:
 
     async def remove_file(self, file_hash: str):
         """
-        Удаляет файл с сервера по хэшу.
+        Удаляет файл по его хэшу.
         Если директория остается пустой - удаляет ее тоже.
+        Если файла нет - генерирует исключение.
 
         :param file_hash: хэш файла, который нужно удалить
-        :return: True - при успешном удалении
         """
 
         file_dir = await self.get_file_directory(file_hash=file_hash)
