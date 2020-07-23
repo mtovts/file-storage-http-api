@@ -1,9 +1,14 @@
 #!/usr/bin/env python
 
+import logging
 from hashlib import sha1
 from pathlib import Path
 
 from fastapi import UploadFile
+
+logging.basicConfig(format='%(levelname)-8s [%(asctime)s] %(name)s: %(message)s',
+                    level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class Storage:
@@ -20,7 +25,7 @@ class Storage:
 
         self.path = path or (Path.cwd() / Path('store'))
         self.dir_len = dir_len
-        self.h = hash_func or sha1()
+        self.hsh = hash_func or sha1()
 
         if not self.path.exists():
             self.path.mkdir()
@@ -34,12 +39,12 @@ class Storage:
         :return хэш файла, полученный с помощью алгоритма
         """
 
-        h = self.h
+        hsh = self.hsh
 
         with open(file.filename, mode='rb', buffering=0) as f:
             for file_part in iter(lambda: f.read(self.CHUNK_SIZE), b''):
-                h.update(file_part)
-        return h.hexdigest()
+                hsh.update(file_part)
+        return hsh.hexdigest()
 
     async def get_file_directory(self, file_hash: str) -> Path:
         """
@@ -67,6 +72,7 @@ class Storage:
             if file_name_parts[0] == file_hash:
                 return file_name_parts[-1]
 
+        logger.error(f"Файл с хэшом '{file_hash}' не найден.")
         raise FileNotFoundError(f"Файл с хэшом '{file_hash}' не найден.")
 
     async def upload_file(self, file: UploadFile) -> str:
@@ -88,8 +94,9 @@ class Storage:
 
         if not file_dir.exists():
             file_dir.mkdir()
-            print(f"Создан каталог '{file_dir}'.")
+            logger.info(f"Создан каталог '{file_dir}'.")
         elif file_path.exists():
+            logger.error(f"Файл с хэшем '{file_hash}' уже загружен.")
             raise ValueError(f"Файл с хэшем '{file_hash}' уже загружен.")
 
         file.file.seek(0)  # возвращаемся в начало файла
@@ -97,14 +104,13 @@ class Storage:
         with open(file_path, mode='wb', buffering=0) as f:
             for chunk in iter(lambda: file.file.read(self.CHUNK_SIZE), b''):
                 f.write(chunk)
-        print(f"Загружен файл '{file.filename}'.")
+        logger.info(f"Загружен файл '{file.filename}'.")
 
         return file_hash
 
     async def download_file(self, file_hash: str) -> Path:
         """
         Отдает имя файла по хэшу.
-        Если файла нет - генерирует исключение.
 
         :param file_hash: хэш запрашиваемого файла
         :return: имя файла
@@ -115,16 +121,18 @@ class Storage:
         file_path = file_dir / Path('.'.join((file_hash, file_extension)))
 
         if not file_path.exists():
-            raise FileNotFoundError(f"Файл '{file_path}' не найден.")
+            logger.error(f"Файл '{file_hash}.{file_extension}' не найден.")
+            raise FileNotFoundError(f"Файл '{file_hash}.{file_extension}' не найден.")
+        logger.info(f"Скачан файл '{file_hash}.{file_extension}'.")
         return file_path
 
     async def remove_file(self, file_hash: str):
         """
-        Удаляет файл по его хэшу.
+        Удаляет файл с сервера по хэшу.
         Если директория остается пустой - удаляет ее тоже.
-        Если файла нет - генерирует исключение.
 
         :param file_hash: хэш файла, который нужно удалить
+        :return: True - при успешном удалении
         """
 
         file_dir = await self.get_file_directory(file_hash=file_hash)
@@ -133,10 +141,11 @@ class Storage:
 
         if file_path.exists() and file_path.is_file():
             file_path.unlink()
-            print(f"Удален файл '{file_hash}.{file_extension}'.")
+            logger.info(f"Удален файл '{file_hash}.{file_extension}'.")
 
             if file_dir.is_dir() and not any(file_dir.iterdir()):
                 file_dir.rmdir()
-                print(f"Удален каталог '{file_dir}'.")
+                logger.info(f"Удален каталог '{file_dir}'.")
         else:
+            logger.error(f"Файл '{file_path}' не найден.")
             raise FileNotFoundError(f"Файл '{file_path}' не найден.")
